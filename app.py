@@ -3,6 +3,10 @@ import pandas as pd
 import sqlite3
 from datetime import datetime
 from engine import NLSQLEngine
+from setup_db import create_and_seed_database
+
+# Create database on startup if it doesn't exist
+create_and_seed_database()
 
 st.set_page_config(
     page_title="NL → SQL Engine",
