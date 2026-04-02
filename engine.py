@@ -1,9 +1,14 @@
+import os
 import sqlite3
 import re
+import streamlit as st
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
+# Load from .env locally, Streamlit secrets on cloud
 load_dotenv()
+if "ANTHROPIC_API_KEY" in st.secrets:
+    os.environ["ANTHROPIC_API_KEY"] = st.secrets["ANTHROPIC_API_KEY"]
 
 DB_PATH = "sales.db"
 
