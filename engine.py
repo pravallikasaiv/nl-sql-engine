@@ -5,8 +5,9 @@ import streamlit as st
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
-# Load from .env locally, Streamlit secrets on cloud
 load_dotenv()
+
+# Works both locally (.env) and on Streamlit Cloud (st.secrets)
 if "ANTHROPIC_API_KEY" in st.secrets:
     os.environ["ANTHROPIC_API_KEY"] = st.secrets["ANTHROPIC_API_KEY"]
 
@@ -47,9 +48,98 @@ If the results are empty, say no data was found for that question.
 """
 
 
+def create_and_seed_database():
+    """Creates and seeds the database — runs on every startup"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS customers (
+            customer_id   INTEGER PRIMARY KEY,
+            name          TEXT NOT NULL,
+            email         TEXT,
+            city          TEXT,
+            country       TEXT
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS products (
+            product_id    INTEGER PRIMARY KEY,
+            product_name  TEXT NOT NULL,
+            category      TEXT,
+            price         REAL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            order_id      INTEGER PRIMARY KEY,
+            customer_id   INTEGER,
+            product_id    INTEGER,
+            quantity      INTEGER,
+            order_date    TEXT,
+            total_amount  REAL,
+            FOREIGN KEY (customer_id) REFERENCES customers(customer_id),
+            FOREIGN KEY (product_id)  REFERENCES products(product_id)
+        )
+    """)
+
+    customers = [
+        (1, "Alice Johnson",  "alice@email.com",   "New York",      "USA"),
+        (2, "Bob Smith",      "bob@email.com",      "London",        "UK"),
+        (3, "Carol White",    "carol@email.com",    "Toronto",       "Canada"),
+        (4, "David Lee",      "david@email.com",    "Sydney",        "Australia"),
+        (5, "Eva Martinez",   "eva@email.com",      "New York",      "USA"),
+        (6, "Frank Chen",     "frank@email.com",    "San Francisco", "USA"),
+        (7, "Grace Kim",      "grace@email.com",    "London",        "UK"),
+        (8, "Henry Brown",    "henry@email.com",    "Toronto",       "Canada"),
+    ]
+
+    products = [
+        (1, "Laptop Pro",     "Electronics", 1200.00),
+        (2, "Wireless Mouse", "Electronics",   45.00),
+        (3, "Standing Desk",  "Furniture",    650.00),
+        (4, "Monitor 4K",     "Electronics",  380.00),
+        (5, "Office Chair",   "Furniture",    420.00),
+        (6, "USB-C Hub",      "Electronics",   55.00),
+        (7, "Notebook Set",   "Stationery",    18.00),
+        (8, "Webcam HD",      "Electronics",   95.00),
+    ]
+
+    orders = [
+        (1,  1, 1, 1, "2024-01-15", 1200.00),
+        (2,  2, 2, 3, "2024-01-18",  135.00),
+        (3,  3, 3, 1, "2024-01-20",  650.00),
+        (4,  1, 4, 2, "2024-02-01",  760.00),
+        (5,  4, 5, 1, "2024-02-05",  420.00),
+        (6,  5, 1, 1, "2024-02-10", 1200.00),
+        (7,  2, 6, 4, "2024-02-14",  220.00),
+        (8,  6, 2, 2, "2024-02-20",   90.00),
+        (9,  7, 8, 1, "2024-03-01",   95.00),
+        (10, 3, 4, 1, "2024-03-05",  380.00),
+        (11, 1, 6, 2, "2024-03-10",  110.00),
+        (12, 8, 1, 1, "2024-03-12", 1200.00),
+        (13, 5, 3, 1, "2024-03-18",  650.00),
+        (14, 4, 7, 5, "2024-03-22",   90.00),
+        (15, 6, 5, 1, "2024-04-01",  420.00),
+    ]
+
+    cursor.executemany(
+        "INSERT OR IGNORE INTO customers VALUES (?,?,?,?,?)", customers)
+    cursor.executemany(
+        "INSERT OR IGNORE INTO products VALUES (?,?,?,?)", products)
+    cursor.executemany(
+        "INSERT OR IGNORE INTO orders VALUES (?,?,?,?,?,?)", orders)
+
+    conn.commit()
+    conn.close()
+
+
 class NLSQLEngine:
 
     def __init__(self):
+        create_and_seed_database()
         self.client = Anthropic()
         self.schema = self._get_schema()
 
@@ -72,23 +162,11 @@ class NLSQLEngine:
         return schema
 
     def _clean_sql(self, raw: str) -> str:
-        """
-        Remove markdown formatting Claude sometimes adds
-        even when told not to. Handles cases like:
-```sql
-        SELECT ...
-```
-        """
-        # Strip markdown code blocks if present
         raw = re.sub(r"```(?:sql)?", "", raw, flags=re.IGNORECASE)
         raw = raw.replace("`", "").strip()
         return raw
 
     def _is_safe_sql(self, sql: str) -> bool:
-        """
-        Only allow SELECT statements.
-        Blocks DROP, DELETE, INSERT, UPDATE — protects your database.
-        """
         first_word = sql.strip().split()[0].upper()
         return first_word == "SELECT"
 
@@ -129,10 +207,8 @@ class NLSQLEngine:
 
     def ask(self, question: str) -> dict:
         try:
-            # Step 1 — generate SQL
             sql = self.generate_sql(question)
 
-            # Step 2 — check if Claude couldn't answer
             if "CANNOT_ANSWER" in sql.upper():
                 return {
                     "success": False,
@@ -141,7 +217,6 @@ class NLSQLEngine:
                              "customers, products, and orders."
                 }
 
-            # Step 3 — safety check (SELECT only)
             if not self._is_safe_sql(sql):
                 return {
                     "success": False,
@@ -149,10 +224,7 @@ class NLSQLEngine:
                     "error": "Only SELECT queries are allowed."
                 }
 
-            # Step 4 — run SQL
             columns, rows = self.run_sql(sql)
-
-            # Step 5 — explain results
             answer = self.explain_results(question, columns, rows)
 
             return {
@@ -176,39 +248,3 @@ class NLSQLEngine:
                 "question": question,
                 "error": f"Something went wrong: {str(e)}"
             }
-
-
-if __name__ == "__main__":
-    engine = NLSQLEngine()
-
-    # Normal questions
-    questions = [
-        "Who are the top 3 customers by total spending?",
-        "What is the average order value?",
-    ]
-
-    # Edge cases — these should fail gracefully
-    edge_cases = [
-        "What is the weather in New York?",   # unrelated question
-        "Delete all customers",               # dangerous SQL
-        "asdfjkl",                            # gibberish
-    ]
-
-    print("=== Normal questions ===")
-    for q in questions:
-        result = engine.ask(q)
-        print(f"\nQ: {q}")
-        if result["success"]:
-            print(f"SQL: {result['sql']}")
-            print(f"Answer: {result['answer']}")
-        else:
-            print(f"Handled gracefully: {result['error']}")
-
-    print("\n=== Edge cases ===")
-    for q in edge_cases:
-        result = engine.ask(q)
-        print(f"\nQ: {q}")
-        if result["success"]:
-            print(f"Answer: {result['answer']}")
-        else:
-            print(f"Handled gracefully: {result['error']}")
