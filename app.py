@@ -5,14 +5,7 @@ import os
 from datetime import datetime
 from engine import NLSQLEngine
 
-# Debug info — shows in sidebar on cloud
-st.sidebar.markdown("### Debug info")
-st.sidebar.write("API key found:", "ANTHROPIC_API_KEY" in st.secrets)
-st.sidebar.write("DB exists:", os.path.exists("sales.db"))
 
-# Show what schema the engine sees
-engine_test = NLSQLEngine()
-st.sidebar.write("Schema:", engine_test.schema)
 
 st.set_page_config(
     page_title="NL → SQL Engine",
@@ -36,7 +29,6 @@ def load_csv_into_db(uploaded_file):
     return table_name, df
 
 
-@st.cache_resource
 def load_default_engine():
     return NLSQLEngine()
 
