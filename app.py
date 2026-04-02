@@ -1,12 +1,14 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
+import os
 from datetime import datetime
 from engine import NLSQLEngine
-from setup_db import create_and_seed_database
 
-# Create database on startup if it doesn't exist
-create_and_seed_database()
+# Debug info — shows in sidebar on cloud
+st.sidebar.markdown("### Debug info")
+st.sidebar.write("API key found:", "ANTHROPIC_API_KEY" in st.secrets)
+st.sidebar.write("DB exists:", os.path.exists("sales.db"))
 
 st.set_page_config(
     page_title="NL → SQL Engine",
